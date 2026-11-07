@@ -14,7 +14,7 @@ Then open `http://localhost:3000`. The host creates a room and players join thro
 
 Primate → Haplorrhine → Anthropoid → Platyrrhine → Spider monkey
 
-Each correct checkpoint is worth 100 points. There is no speed bonus and the leaderboard appears only at the end.
+Each correct checkpoint is worth 100 points plus up to 25 speed points. Changing an answer resets that checkpoint's response time. The leaderboard appears only at the end, with cumulative response time used as the tie-breaker.
 
 ## Notes
 

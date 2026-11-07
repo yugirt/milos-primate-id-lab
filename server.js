@@ -83,6 +83,7 @@ function roomState(room, viewer, viewerId) {
       answered: p.answers.has(room.checkpoint)
     }));
     base.responses = responseCounts(room);
+    if (room.phase === "final") base.leaderboard = leaderboard(room);
     return base;
   }
 
@@ -92,7 +93,8 @@ function roomState(room, viewer, viewerId) {
     name: player.name,
     score: player.score,
     answer: player.answers.get(room.checkpoint) ?? null,
-    awarded: player.awarded.has(room.checkpoint)
+    awarded: player.awarded.has(room.checkpoint),
+    checkpointPoints: player.points.get(room.checkpoint) ?? null
   } : null;
   if (room.answerRevealed && room.checkpoint >= 0) {
     base.responses = responseCounts(room);
@@ -115,8 +117,13 @@ function responseCounts(room) {
 
 function leaderboard(room) {
   return [...room.players.values()]
-    .map(p => ({ id: p.id, name: p.name, score: p.score }))
-    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+    .map(p => ({
+      id: p.id,
+      name: p.name,
+      score: p.score,
+      totalResponseMs: [...p.answerTimes.values()].reduce((sum, value) => sum + value, 0)
+    }))
+    .sort((a, b) => b.score - a.score || a.totalResponseMs - b.totalResponseMs || a.name.localeCompare(b.name));
 }
 
 function freshRoom(code, hostToken) {
@@ -130,6 +137,7 @@ function freshRoom(code, hostToken) {
     checkpoint: -1,
     evidenceShown: 0,
     answerOpen: false,
+    answerOpenedAt: 0,
     answerRevealed: false,
     revealedNodes: [],
     players: new Map()
@@ -173,7 +181,7 @@ async function handleApi(req, res, url) {
       player.online = true;
     } else {
       const id = token();
-      player = { id, name, score: 0, answers: new Map(), awarded: new Set(), lastSeen: Date.now(), online: true };
+      player = { id, name, score: 0, answers: new Map(), answerTimes: new Map(), points: new Map(), awarded: new Set(), lastSeen: Date.now(), online: true };
       room.players.set(id, player);
     }
     bump(room);
@@ -201,6 +209,7 @@ async function handleApi(req, res, url) {
     const answer = Number(body.answer);
     if (!Number.isInteger(answer) || answer < 0 || answer > 3) return json(res, 400, { error: "Invalid answer." });
     player.answers.set(room.checkpoint, answer);
+    player.answerTimes.set(room.checkpoint, Math.max(0, Date.now() - room.answerOpenedAt));
     player.lastSeen = Date.now();
     bump(room);
     return json(res, 200, { accepted: true });
@@ -224,6 +233,7 @@ async function handleApi(req, res, url) {
       case "openAnswers":
         if (room.phase !== "checkpoint" || room.evidenceShown < 4) return json(res, 409, { error: "Reveal all evidence first." });
         room.answerOpen = true;
+        room.answerOpenedAt = Date.now();
         break;
       case "closeAnswers":
         room.answerOpen = false;
@@ -234,7 +244,14 @@ async function handleApi(req, res, url) {
         for (const p of room.players.values()) {
           if (p.awarded.has(room.checkpoint)) continue;
           const correct = Number(body.correctAnswer);
-          if (p.answers.get(room.checkpoint) === correct) p.score += 100;
+          let earned = 0;
+          if (p.answers.get(room.checkpoint) === correct) {
+            const elapsed = p.answerTimes.get(room.checkpoint) ?? 25000;
+            const speedBonus = Math.max(0, 25 - Math.floor(elapsed / 1000));
+            earned = 100 + speedBonus;
+            p.score += earned;
+          }
+          p.points.set(room.checkpoint, earned);
           p.awarded.add(room.checkpoint);
         }
         if (!room.revealedNodes.includes(room.checkpoint)) room.revealedNodes.push(room.checkpoint);
@@ -248,6 +265,7 @@ async function handleApi(req, res, url) {
           room.phase = "checkpoint";
           room.evidenceShown = 0;
           room.answerOpen = false;
+          room.answerOpenedAt = 0;
           room.answerRevealed = false;
         }
         break;
@@ -256,11 +274,14 @@ async function handleApi(req, res, url) {
         room.checkpoint = -1;
         room.evidenceShown = 0;
         room.answerOpen = false;
+        room.answerOpenedAt = 0;
         room.answerRevealed = false;
         room.revealedNodes = [];
         for (const p of room.players.values()) {
           p.score = 0;
           p.answers.clear();
+          p.answerTimes.clear();
+          p.points.clear();
           p.awarded.clear();
         }
         break;
