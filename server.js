@@ -4,6 +4,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const QRCode = require("qrcode");
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -199,7 +200,6 @@ async function handleApi(req, res, url) {
     }
     const answer = Number(body.answer);
     if (!Number.isInteger(answer) || answer < 0 || answer > 3) return json(res, 400, { error: "Invalid answer." });
-    if (player.answers.has(room.checkpoint)) return json(res, 409, { error: "Your answer is already locked." });
     player.answers.set(room.checkpoint, answer);
     player.lastSeen = Date.now();
     bump(room);
@@ -291,7 +291,13 @@ function serveStatic(req, res, url) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   try {
-    if (url.pathname.startsWith("/api/")) await handleApi(req, res, url);
+    if (url.pathname === "/api/qr") {
+      const text = url.searchParams.get("text") || "";
+      if (!text || text.length > 500) return json(res, 400, { error: "Invalid QR destination." });
+      const svg = await QRCode.toString(text, { type: "svg", width: 240, margin: 1, color: { dark: "#163d2a", light: "#ffffff" } });
+      res.writeHead(200, { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(svg);
+    } else if (url.pathname.startsWith("/api/")) await handleApi(req, res, url);
     else serveStatic(req, res, url);
   } catch (err) {
     console.error(err);
