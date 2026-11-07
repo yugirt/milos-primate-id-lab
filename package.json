@@ -1,0 +1,13 @@
+{
+  "name": "milos-primate-id-lab",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Live classroom primate classification game",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/app.js && node --check public/content.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
